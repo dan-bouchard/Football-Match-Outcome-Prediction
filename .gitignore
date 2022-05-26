@@ -1,4 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
 
 Match_Info.csv
 Team_Info.csv
 Football-Dataset.zip
+elo_dict.pkl
