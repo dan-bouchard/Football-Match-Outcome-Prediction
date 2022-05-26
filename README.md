@@ -6,5 +6,6 @@
 
 - Used pandas and seaborn to analyse the dataset and perform some initial analysis, and found some trends in the dataset
 - Used pandas to clean some corrupted data
+- There is a clear relationship between the home team tending to score more goals per game across all the different leagues
 
 > ![](/imgs/number_of_goals_per_game_in_each_league_for_home_and_away.png?raw=1)
