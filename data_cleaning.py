@@ -87,6 +87,21 @@ def create_home_away_goals_and_result_attributes(data_df):
 
     return data_df
 
+def create_match_id_col_from_link(data):
+    '''
+    This function is used to create the match_id column from the imported scores dataframe by using the link and year columns. 
+
+    Returns:
+        An altered pandas dataframe with new column match_id
+    '''
+
+    def create_match_id_teams(x):
+        split_str = x.split('/')
+        return split_str[4] + '/' + split_str[5]
+
+    data['match_id'] = data['link'].apply(create_match_id_teams)  + '/' + data['year'].astype(str)
+    return data
+
 def import_match_info_data():
     '''
     This function is used to import the match details dataset from the csv file Match_Info.csv into a pandas dataframe
@@ -119,7 +134,6 @@ def import_match_info_data():
 def create_match_id_col(data):
     '''
     This function is used to create the match_id column from the imported match info dataframe by using the link and date columns. 
-    The function assumes that the scores column is not corrupted.
     This function then removes the redundant link column
 
     Returns:
