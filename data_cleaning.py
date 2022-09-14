@@ -10,7 +10,7 @@ def import_leagues(original_dataset = True):
     NOTE: if original_dataset parameter is True, the score column will be cleaned for the corrupted data
 
     Returns:
-        A pandas dataframe with columns: home_team, away_team, score, link, year, round and league
+        A pandas dataframe with columns: home_team, away_team, score, link, season_year, match_round and league
     '''
     
     league_names = ["premier_league", "championship", "primera_division", "segunda_division",
@@ -31,61 +31,61 @@ def import_leagues(original_dataset = True):
         
         return df
     
-    def clean_score_col(data):
-        home_goals_numeric = data['score'].apply(lambda x: x.split('-')[0].isnumeric())
-        list_of_err_idxs = home_goals_numeric[~home_goals_numeric].index.to_list()
-
-        data.loc[list_of_err_idxs[0],'score'] = '0-0'
-        data.loc[list_of_err_idxs[1],'score'] = '3-2'
-        data.loc[list_of_err_idxs[2],'score'] = '0-1'
+    def clean_score_col(data):   
+        score_idx_to_fix = data[~data.score.str.contains('^\d+-\d+$')].index.to_list()
+        data.loc[score_idx_to_fix[0],'score'] = '0-0'
+        data.loc[score_idx_to_fix[1],'score'] = '3-2'
+        data.loc[score_idx_to_fix[2],'score'] = '0-1'
         # Fourth match postponed due to Covid pandemic so need to remove row
-        data.loc[list_of_err_idxs[4],'score'] = '0-0'
+        data.loc[score_idx_to_fix[4],'score'] = '0-0'
 
         # Remove incompleted match
-        data.drop(list_of_err_idxs[3], inplace=True)
+        data = (data
+            .drop(score_idx_to_fix[3])
+            .reset_index()
+            .drop('index', axis=1))
 
-        data.reset_index(inplace=True)
-        data.drop(['index'], axis=1, inplace=True)
         return data
 
     df = pd.DataFrame()
     for league in league_names:
         df = pd.concat([df, import_league(league)])
     
-    df.reset_index(inplace=True)
-    df.drop(['index'], axis=1, inplace=True)
-    df.rename(columns={'season': 'year', 'result': 'score'}, inplace=True)
+    df = (df.reset_index()
+        .drop(columns='index')
+        .rename(columns={'season': 'season_year', 'result': 'score', 'round': 'match_round'})
+        .assign(season_year = lambda df_: df_.season_year.astype('int'),
+            match_round = lambda df_: df_.match_round.astype('int'))
+    )
 
     if original_dataset:
         df = clean_score_col(df)
 
     return df
 
-def create_home_away_goals_and_result_attributes(data_df):
+def tweak_scores_df(data_df):
     '''
     This function is used to create the home and away goals columns from the imported scores dataframe by using the scores column. 
     The function assumes that the scores column is not corrupted.
     This function then also calculates the result column which can be: home_win, draw or away_win
 
     Returns:
-        An altered pandas dataframe with new columns: home_goals, away_goals and result
+        An altered pandas dataframe with new columns: home_goals, away_goals, result, home_points and away_points
     '''
 
-    def calculate_result(df):
-        if df['home_goals'] > df['away_goals']:
-            return 'home_win' # Home Win
-        elif df['home_goals'] == df['away_goals']:
-            return 'draw' # Draw
-        else:
-            return 'away_win' # Away Win
+    def split_home_away_goals(df):
+        return (df.join(df.score.str.split('-', expand=True)
+            .astype('int')
+            .rename(columns={0: 'home_goals', 1: 'away_goals'})))
 
-    data_df['home_goals'] = data_df['score'].apply(lambda x: int(x.split('-')[0]))
-    data_df['away_goals'] = data_df['score'].apply(lambda x: int(x.split('-')[1]))
-
-    # New result attribute for each match
-    data_df['result'] = data_df[['home_goals', 'away_goals']].apply(calculate_result, axis=1)
-
-    return data_df
+    return (data_df
+            .pipe(split_home_away_goals)
+            .assign(result = lambda df_: np.select([df_.home_goals > df_.away_goals, df_.home_goals == df_.away_goals], ['home_win', 'draw'], 'away_win'))
+            .assign(result = lambda df_: df_.result.astype('category'))
+            .assign(home_points = lambda df_: np.select([df_.result == 'home_win', df_.result == 'draw'], [3, 1], 0),
+                    away_points = lambda df_: np.select([df_.result == 'home_win', df_.result == 'draw'], [0, 1], 3))
+            .drop_duplicates(subset=['home_team', 'away_team', 'season_year'], keep='first'))
+            
 
 def create_match_id_col_from_link(data):
     '''
@@ -95,12 +95,7 @@ def create_match_id_col_from_link(data):
         An altered pandas dataframe with new column match_id
     '''
 
-    def create_match_id_teams(x):
-        split_str = x.split('/')
-        return split_str[4] + '/' + split_str[5]
-
-    data['match_id'] = data['link'].apply(create_match_id_teams)  + '/' + data['year'].astype(str)
-    return data
+    return data.assign(match_id = data.link.str.extract('match/([\w-]+\/[\w-]+\/)')[0].str.cat(data.season_year.astype('str')))
 
 def import_match_info_data():
     '''
@@ -110,26 +105,12 @@ def import_match_info_data():
         A pandas dataframe with columns: link, date, referee, home_yellow, home_red, away_yellow, away_red
     '''
 
-    def clean_referee_col(item):
-        try:
-            remove_separators = item.split('\r\n')[1]
-            ref_name = remove_separators.split(':')[1]
-            ref_name_out = ref_name[1:]
-            return ref_name_out
-        except:
-            if item == '\r\n':
-                return np.nan
-            else:
-                return item
-
     df = pd.read_csv('Match_Info.csv', na_values=np.nan)
-    df.columns = df.columns.str.lower()
-    df.rename(columns={'date_new': 'date'}, inplace=True)
-
-    # Need to clean the referee column
-    df['referee'] = df['referee'].apply(clean_referee_col)
-
-    return df
+    return (df.rename(columns = dict(zip(df.columns, df.columns.str.lower())))
+                .assign(referee = lambda df_: df_.referee.str.extract('\r\nReferee: ([\w -.]+)'),
+                    date_new = lambda df_: pd.to_datetime(df_.date_new))
+                .rename(columns={'date_new': 'date'})
+            )
 
 def create_match_id_col(data):
     '''
@@ -140,22 +121,13 @@ def create_match_id_col(data):
         An altered pandas dataframe with new column match_id and removes the redundant link column
     '''
 
-    data['date'] = pd.to_datetime(data['date'], infer_datetime_format=True)
-
-    def create_match_id_teams_match_info(x):
-        split_str = x.split('/')
-        return split_str[2] + '/' + split_str[3]
-
-    def convert_to_season_year(x):
-        year = x.year
-        month = x.month
-        if month >= 7:
-            year += 1
-        return year
-    
-    data['match_id'] = data['link'].apply(create_match_id_teams_match_info)  + '/' + data['date'].apply(convert_to_season_year).astype(str)
-    data.drop('link', axis=1, inplace=True)
-    return data
+    return (data
+        .assign(match_id = 
+                    data.link.str.extract('/match[_\d]*/([\w-]+/[\w-]+/[\d]+)')[0])
+                    # .str.cat(data.date.dt.year
+                    #             .mask(data.date.dt.day_of_year > 196, data.date.dt.year.add(1)).astype('str'))) # day 196 is 15th July
+        .drop(columns='link')
+        )
 
 def import_team_info_data():
     '''
@@ -163,10 +135,12 @@ def import_team_info_data():
 
     Returns:
         A pandas dataframe with columns: team, city, country, stadium, capacity and pitch
-    '''
+    '''  
 
     df = pd.read_csv('Team_Info.csv', na_values=np.nan)
-    df.columns = df.columns.str.lower()
-    df['capacity'] = df['capacity'].apply(lambda x: int(x.replace(",","")))
-
-    return df
+    # drop indexes with Portugal
+    portugal_idxs = df.query("Country == 'Portugal'").index.to_list()
+    return (df.rename(columns = dict(zip(df.columns, df.columns.str.lower())))
+                .assign(capacity = lambda df_: df_.capacity.str.replace(',','').astype('int'))
+                .drop(portugal_idxs)
+            )
