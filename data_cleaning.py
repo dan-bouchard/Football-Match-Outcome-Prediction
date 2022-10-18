@@ -373,3 +373,52 @@ def fill_median_yellow_red_cards_for_each_year_league(merged_df):
             .fillna(away_dict))
         
     return merged_df
+
+def calculate_median_value_for_each_year_league(merged_df, cols):
+    ''''
+    Given the merged dataframe, return the median cols for each (year, league) required
+
+    Returns:
+        A dictionary with keys: tuple (year, league) with missing cols data
+            and values: dictionary median (cols) for that (year, league) 
+    '''
+    missing_cols_df = (merged_df
+                            .assign(missing_col = merged_df[cols[0]].isna())
+                            .groupby(['season_year', 'league'])
+                            .agg(missing_col = ('missing_col', 'sum'),
+                                    total_games = ('missing_col', 'count'))
+    )
+
+    seasons_with_some_missing_cols = missing_cols_df[missing_cols_df.missing_col > 0].index.to_list()
+
+    median_values_for_missing_cols = {}
+    for year_league in seasons_with_some_missing_cols:
+        year, league = year_league
+        median_values_for_missing_cols[year_league] = (merged_df
+            .query("(season_year == @year) and (league == @league)")
+            .loc[:, cols]
+            .median()
+            .to_dict()
+        )
+
+    return median_values_for_missing_cols
+
+def fill_median_value_for_each_year_league(merged_df, cols):
+    '''
+    Given the merged dataframe, return the same dataframe with the missing values for cols    
+    filled in with median for that season (i.e. year and league)
+    '''
+    
+    median_values_for_missing_cols = calculate_median_value_for_each_year_league(merged_df, cols)
+    for key, cols_values in median_values_for_missing_cols.items():
+        
+        year, league = key
+        
+        selection_idx = (merged_df.season_year == year) & (merged_df.league == league)
+
+        merged_df.loc[selection_idx, cols] = (merged_df
+            .query("(season_year == @year) and (league == @league)")
+            [cols]
+            .fillna(cols_values)
+        )
+    return merged_df
