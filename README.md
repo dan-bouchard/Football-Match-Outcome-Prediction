@@ -9,3 +9,12 @@
 - There is a clear relationship between the home team tending to score more goals per game across all the different leagues
 
 > ![](./imgs/number_of_goals_per_game_in_each_league_for_home_and_away.png?raw=1)
+
+## Feature Engineering
+
+- Used pandas to join 3 separate datasets together
+- Cleaned the dataset by filling in missing data
+- Created a number of new features, ensuring no data leakage:
+    - Form
+    - Total goals
+    - Discipline
