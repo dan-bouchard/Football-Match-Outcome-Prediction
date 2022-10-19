@@ -18,3 +18,9 @@
     - Form
     - Total goals
     - Discipline
+
+## Upload the data to the database
+
+- Created a data pipeline which cleans the dataset and uploads it to a SQL database
+- Created a feature engineering pipeline to generate new features from the cleaned dataset
+- The new features generated can be altered and tuned by hyper-parameters
