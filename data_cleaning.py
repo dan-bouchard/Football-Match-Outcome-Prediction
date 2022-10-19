@@ -220,6 +220,23 @@ def import_and_merge_data_pipeline():
     
     return merged_data_df
 
+def calculate_missing_data_flags(merged_df, cards=True, elo=True):
+    '''
+    Returns the same dataframe back with two extra columns if the parameters are set
+    for missing cards and elo data
+    '''
+    merged_df_new = merged_df.copy()
+    if cards:
+        merged_df_new = (merged_df_new
+            .assign(missing_cards = merged_df.home_yellow.isna())
+        )
+    if elo:
+        merged_df_new = (merged_df_new
+            .assign(missing_elo = merged_df.home_elo.isna())
+        )
+    return merged_df_new
+
+
 def calculate_median_yellow_red_cards_for_each_year(merged_df):
     ''''
     Given the merged dataframe, return the median: home_yellow, home_red, away_yellow, away_red for each year required
@@ -268,18 +285,19 @@ def fill_median_yellow_red_cards_for_each_year(merged_df):
     filled in only when the full season data is missing (i.e. year and league)
     '''
     median_values, year_league = calculate_median_yellow_red_cards_for_each_year(merged_df)
+    merged_df_new = merged_df.copy()
     if len(year_league) > 0:
         for year, league in year_league:
         
-            selection_idx = (merged_df.season_year == year) & (merged_df.league == league)
+            selection_idx = (merged_df_new.season_year == year) & (merged_df_new.league == league)
 
-            merged_df.loc[selection_idx, ['home_yellow', 'home_red', 'away_yellow', 'away_red']] = (merged_df
+            merged_df_new.loc[selection_idx, ['home_yellow', 'home_red', 'away_yellow', 'away_red']] = (merged_df_new
                 .query("(season_year == @year) and (league == @league)")
                 [['home_yellow', 'home_red', 'away_yellow', 'away_red']]
                 .fillna(median_values.to_dict()[year])
             )
     
-    return merged_df
+    return merged_df_new
 
 def calculate_year_league_teams_missing_full_season_cards_data(merged_df):
     '''
@@ -349,32 +367,33 @@ def fill_median_yellow_red_cards_for_each_year_league(merged_df):
     missing_year_league_teams = calculate_year_league_teams_missing_full_season_cards_data(merged_df)
     cards_for_each_league_year = calculate_median_cards_value_for_year_league_teams_missing_full_season_cards_data(merged_df)
     
+    merged_df_new = merged_df.copy()
     for year_league_team in missing_year_league_teams:
         year, league, team = year_league_team
         year_league = (year, league)
-        home_selection_idx = ((merged_df.season_year == year) & (merged_df.league == league)
-            & (merged_df.home_team == team))
-        away_selection_idx = ((merged_df.season_year == year) & (merged_df.league == league)
-            & (merged_df.away_team == team))
+        home_selection_idx = ((merged_df_new.season_year == year) & (merged_df_new.league == league)
+            & (merged_df_new.home_team == team))
+        away_selection_idx = ((merged_df_new.season_year == year) & (merged_df_new.league == league)
+            & (merged_df_new.away_team == team))
         
         home_dict = {'home_yellow': cards_for_each_league_year[year_league]['home_yellow'], 
             'home_red': cards_for_each_league_year[year_league]['home_red']}
         away_dict = {'away_yellow': cards_for_each_league_year[year_league]['away_yellow'], 
             'away_red': cards_for_each_league_year[year_league]['away_red']}
         
-        merged_df.loc[home_selection_idx, ['home_yellow', 'home_red']] = (merged_df
+        merged_df_new.loc[home_selection_idx, ['home_yellow', 'home_red']] = (merged_df_new
             .query("(season_year == @year) and (league == @league) and (home_team == @team)")
             [['home_yellow', 'home_red']]
             .fillna(home_dict))
         
-        merged_df.loc[away_selection_idx, ['away_yellow', 'away_red']] = (merged_df
+        merged_df_new.loc[away_selection_idx, ['away_yellow', 'away_red']] = (merged_df_new
             .query("(season_year == @year) and (league == @league) and (away_team == @team)")
             [['away_yellow', 'away_red']]
             .fillna(away_dict))
         
-    return merged_df
+    return merged_df_new
 
-def calculate_median_value_for_each_year_league(merged_df, cols):
+def calculate_median_value_for_each_year_league(merged_df, cols, only_when_full_season_missing=False):
     ''''
     Given the merged dataframe, return the median cols for each (year, league) required
 
@@ -388,14 +407,23 @@ def calculate_median_value_for_each_year_league(merged_df, cols):
                             .agg(missing_col = ('missing_col', 'sum'),
                                     total_games = ('missing_col', 'count'))
     )
-
-    seasons_with_some_missing_cols = missing_cols_df[missing_cols_df.missing_col > 0].index.to_list()
+    if not only_when_full_season_missing:
+        seasons_with_some_missing_cols = missing_cols_df[missing_cols_df.missing_col > 0].index.to_list()
+    else:
+        mask = (missing_cols_df.missing_col == missing_cols_df.total_games) & (missing_cols_df.missing_col > 0)
+        seasons_with_some_missing_cols = missing_cols_df[mask].index.to_list()
 
     median_values_for_missing_cols = {}
+    
+    if not only_when_full_season_missing:
+        selected_query = "(season_year == @year) and (league == @league)"
+    else:
+        selected_query = "(season_year == @year)"
+
     for year_league in seasons_with_some_missing_cols:
         year, league = year_league
         median_values_for_missing_cols[year_league] = (merged_df
-            .query("(season_year == @year) and (league == @league)")
+            .query(selected_query)
             .loc[:, cols]
             .median()
             .to_dict()
@@ -403,22 +431,132 @@ def calculate_median_value_for_each_year_league(merged_df, cols):
 
     return median_values_for_missing_cols
 
-def fill_median_value_for_each_year_league(merged_df, cols):
+def fill_median_value_for_each_year_league(merged_df, cols, only_when_full_season_missing=False):
     '''
     Given the merged dataframe, return the same dataframe with the missing values for cols    
     filled in with median for that season (i.e. year and league)
     '''
     
-    median_values_for_missing_cols = calculate_median_value_for_each_year_league(merged_df, cols)
+    median_values_for_missing_cols = calculate_median_value_for_each_year_league(merged_df, cols, only_when_full_season_missing)
+    merged_df_new = merged_df.copy()
+
     for key, cols_values in median_values_for_missing_cols.items():
         
         year, league = key
         
-        selection_idx = (merged_df.season_year == year) & (merged_df.league == league)
+        selection_idx = (merged_df_new.season_year == year) & (merged_df_new.league == league)
 
-        merged_df.loc[selection_idx, cols] = (merged_df
+        merged_df_new.loc[selection_idx, cols] = (merged_df_new
             .query("(season_year == @year) and (league == @league)")
             [cols]
             .fillna(cols_values)
         )
-    return merged_df
+    return merged_df_new
+
+def fill_missing_cards_elo_data(merged_df, drop_date_referee=True, bfill_cards_data=True):
+    '''
+    This function takes the merged data and puts it in a long format, so games are in match order regardless of
+    home and away and then forward fill the missing cards and Elo data.
+    If the last flag is True, the date and referee cols are dropped
+
+    Returns:
+        The same dataframe with missing data filled
+    '''
+
+    merged_df_new = merged_df.copy()
+    home_data = (merged_df_new[['home_team', 'home_yellow', 'home_red', 'home_elo', 'match_round', 'season_year', 'league']]
+                    .rename(columns=lambda col_name: col_name[5:] if col_name[:4] == 'home' else col_name))
+    away_data = (merged_df_new[['away_team', 'away_yellow', 'away_red', 'away_elo', 'match_round', 'season_year', 'league']]
+                    .rename(columns=lambda col_name: col_name[5:] if col_name[:4] == 'away' else col_name))
+
+    data_long_format = (pd.concat([home_data, away_data])
+                                .reset_index()
+                                .assign(idx = lambda df_: np.arange(df_.shape[0]))
+                                .set_index('idx'))
+
+    data_long_new_features = (data_long_format
+        .sort_values(['league', 'season_year', 'team', 'match_round']).reset_index()
+        .assign(yellow = lambda df_: df_.groupby(['team']).yellow.transform('ffill'),
+            red = lambda df_: df_.groupby(['team']).red.transform('ffill'),
+            elo = lambda df_: df_.groupby(['team']).elo.transform('ffill'))
+        .set_index('idx').sort_index()
+    )
+
+    home_data_transformed = (data_long_new_features[:home_data.shape[0]]
+                                .set_index('match_id')
+                                .drop(columns=['team', 'match_round',
+                                    'season_year', 'league'])
+                                .rename(columns = lambda col: 'home_' + col))
+
+    away_data_transformed = (data_long_new_features[home_data.shape[0]:]
+                                .set_index('match_id')
+                                .drop(columns=['team', 'match_round',
+                                    'season_year', 'league'])
+                                .rename(columns = lambda col: 'away_' + col))
+    
+    if drop_date_referee and bfill_cards_data:
+        merged_df_new = (merged_df_new
+            .drop(columns = ['home_yellow', 'home_red', 'away_yellow', 'away_red', 'home_elo', 'away_elo'])
+            .join(home_data_transformed)
+            .join(away_data_transformed)
+            .assign(home_yellow = lambda df_: df_.groupby(['season_year', 'league', 'home_team']).home_yellow.transform('bfill'),
+                        home_red = lambda df_: df_.groupby(['season_year', 'league', 'home_team']).home_red.transform('bfill'),
+                        away_yellow = lambda df_: df_.groupby(['season_year', 'league', 'away_team']).away_yellow.transform('bfill'),
+                        away_red = lambda df_: df_.groupby(['season_year', 'league', 'away_team']).away_red.transform('bfill'))
+            .assign(home_yellow = lambda df_: df_.groupby(['league', 'home_team']).home_yellow.transform('bfill'),
+                        home_red = lambda df_: df_.groupby(['league', 'home_team']).home_red.transform('bfill'),
+                        away_yellow = lambda df_: df_.groupby(['league', 'away_team']).away_yellow.transform('bfill'),
+                        away_red = lambda df_: df_.groupby(['league', 'away_team']).away_red.transform('bfill'))
+            .drop(columns=['date', 'referee'])
+        )
+
+    elif drop_date_referee and not bfill_cards_data:
+        merged_df_new = (merged_df_new
+            .drop(columns = ['home_yellow', 'home_red', 'away_yellow', 'away_red', 'home_elo', 'away_elo'])
+            .join(home_data_transformed)
+            .join(away_data_transformed)
+            .drop(columns=['date', 'referee'])
+        )
+    
+    elif bfill_cards_data and not drop_date_referee:
+        merged_df_new = (merged_df_new
+            .drop(columns = ['home_yellow', 'home_red', 'away_yellow', 'away_red', 'home_elo', 'away_elo'])
+            .join(home_data_transformed)
+            .join(away_data_transformed)
+            .assign(home_yellow = lambda df_: df_.groupby(['season_year', 'league', 'home_team']).home_yellow.transform('bfill'),
+                        home_red = lambda df_: df_.groupby(['season_year', 'league', 'home_team']).home_red.transform('bfill'),
+                        away_yellow = lambda df_: df_.groupby(['season_year', 'league', 'away_team']).away_yellow.transform('bfill'),
+                        away_red = lambda df_: df_.groupby(['season_year', 'league', 'away_team']).away_red.transform('bfill'))
+            .assign(home_yellow = lambda df_: df_.groupby(['league', 'home_team']).home_yellow.transform('bfill'),
+                        home_red = lambda df_: df_.groupby(['league', 'home_team']).home_red.transform('bfill'),
+                        away_yellow = lambda df_: df_.groupby(['league', 'away_team']).away_yellow.transform('bfill'),
+                        away_red = lambda df_: df_.groupby(['league', 'away_team']).away_red.transform('bfill'))
+        )
+    
+    else:
+        merged_df_new = (merged_df_new
+            .drop(columns = ['home_yellow', 'home_red', 'away_yellow', 'away_red', 'home_elo', 'away_elo'])
+            .join(home_data_transformed)
+            .join(away_data_transformed)
+        )
+
+    return merged_df_new
+
+def clean_data_pipeline(merged_df):
+    '''
+    This function is a data pipeline for cleaning all the data in the dataframe
+
+    Returns:
+    A cleaned dataframe with no missing data
+    '''
+
+    merged_missing_flags_df = calculate_missing_data_flags(merged_df)
+    fill_cards_full_season_missing_df = fill_median_yellow_red_cards_for_each_year(merged_missing_flags_df)
+
+    fill_cards_teams_full_season_missing_df = fill_median_yellow_red_cards_for_each_year_league(fill_cards_full_season_missing_df)
+    fill_cards_teams_capacity_missing_df = fill_median_value_for_each_year_league(fill_cards_teams_full_season_missing_df, ['capacity'])
+    fill_cards_teams_capacity_elo_missing_df = fill_median_value_for_each_year_league(fill_cards_teams_capacity_missing_df, ['home_elo', 'away_elo'], only_when_full_season_missing=True)
+
+    cleaned_df = fill_missing_cards_elo_data(fill_cards_teams_capacity_elo_missing_df)
+
+    return cleaned_df
