@@ -24,3 +24,12 @@
 - Created a data pipeline which cleans the dataset and uploads it to a SQL database
 - Created a feature engineering pipeline to generate new features from the cleaned dataset
 - The new features generated can be altered and tuned by hyper-parameters
+
+## Model Training
+
+ - Trained a baseline Logistic Regression model to predict the result: Home Win, Draw or Away Win
+ - Used Random Forest and LightGBM models to improve performance
+ - Looked at which features can be removed to improve performance (Leave One Feature Out - LOFO)
+ - Looked at which years of the dataset which can be removed in order to improve performance
+
+ > ![](./imgs/lofo_scores.png?raw=1)
