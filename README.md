@@ -31,5 +31,6 @@
  - Used Random Forest and LightGBM models to improve performance
  - Looked at which features can be removed to improve performance (Leave One Feature Out - LOFO)
  - Looked at which years of the dataset which can be removed in order to improve performance
+ - Saved the final model as `model.pkl`
 
  > ![](./imgs/lofo_scores.png?raw=1)
