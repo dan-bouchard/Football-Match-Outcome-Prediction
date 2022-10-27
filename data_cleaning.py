@@ -4,7 +4,7 @@ import pickle
 from zipfile import ZipFile
 
 
-def import_leagues(original_dataset = True):
+def import_leagues(original_dataset = True, years=None, to_predict=False):
     '''
     This function is used to import the results dataset from the zip file Football-Dataset.zip into a pandas dataframe
 
@@ -18,15 +18,19 @@ def import_leagues(original_dataset = True):
                 "bundesliga", "2_liga", "serie_a", "serie_b", "ligue_1", "ligue_2", 
                 "eredivisie", "eerste_divisie"]
     
-    def import_league(league_name, df=None):
+    def import_league(league_name, df=None, years=None, to_predict=False):
         if df is None:
             df = pd.DataFrame()
-        years = list(range(1990,2022))
+        if years is None:
+            years = list(range(1990,2022))
         
         for year in years:
-            with ZipFile("Football-Dataset.zip") as myzip:
-                data = myzip.open(f"Football-Dataset/{league_name}/Results_{year}_{league_name}.csv")
-            season = pd.read_csv(data)
+            if to_predict:
+                season = pd.read_csv(f"./data/to_predict/{league_name}/Results_{year}_{league_name}.csv")
+            else:
+                with ZipFile("Football-Dataset.zip") as myzip:
+                    data = myzip.open(f"Football-Dataset/{league_name}/Results_{year}_{league_name}.csv")
+                season = pd.read_csv(data)
             season.columns = season.columns.str.lower()
             df = pd.concat([df, season])
         
@@ -50,7 +54,7 @@ def import_leagues(original_dataset = True):
 
     df = pd.DataFrame()
     for league in league_names:
-        df = pd.concat([df, import_league(league)])
+        df = pd.concat([df, import_league(league, years=years, to_predict=to_predict)])
     
     df = (df.reset_index()
         .drop(columns='index')
@@ -58,6 +62,7 @@ def import_leagues(original_dataset = True):
         .assign(season_year = lambda df_: df_.season_year.astype('int'),
             match_round = lambda df_: df_.match_round.astype('int'))
     )
+    df = df.drop(df[df.score.str.contains('N/A')].index)
 
     if original_dataset:
         df = clean_score_col(df)
@@ -98,20 +103,26 @@ def create_match_id_col_from_link(data):
 
     return data.assign(match_id = data.link.str.extract('match/([\w-]+\/[\w-]+\/)')[0].str.cat(data.season_year.astype('str')))
 
-def import_match_info_data():
+def import_match_info_data(to_predict=False):
     '''
     This function is used to import the match details dataset from the csv file Match_Info.csv into a pandas dataframe
 
     Returns:
         A pandas dataframe with columns: link, date, referee, home_yellow, home_red, away_yellow, away_red
     '''
-
-    df = pd.read_csv('Match_Info.csv', na_values=np.nan)
-    return (df.rename(columns = dict(zip(df.columns, df.columns.str.lower())))
+    if to_predict:
+        df = pd.read_csv('./data/match_info/Match_Info_predict.csv', na_values=np.nan)
+        return (df.rename(columns = dict(zip(df.columns, df.columns.str.lower())))
+                .assign(date_new = lambda df_: pd.to_datetime(df_.date_new, dayfirst=True))
+                .rename(columns={'date_new': 'date'})
+                )
+    else:
+        df = pd.read_csv('Match_Info.csv', na_values=np.nan)
+        return (df.rename(columns = dict(zip(df.columns, df.columns.str.lower())))
                 .assign(referee = lambda df_: df_.referee.str.extract('\r\nReferee: ([\w -.]+)'),
                     date_new = lambda df_: pd.to_datetime(df_.date_new))
                 .rename(columns={'date_new': 'date'})
-            )
+                )
 
 def create_match_id_col(data):
     '''
@@ -124,7 +135,7 @@ def create_match_id_col(data):
 
     return (data
         .assign(match_id = 
-                    data.link.str.extract('/match[_\d]*/([\w-]+/[\w-]+/[\d]+)')[0])
+                    data.link.str.extract('/match[_\d]*/([\w-]+/[\w-]+/[\d]{4})')[0])
                     # .str.cat(data.date.dt.year
                     #             .mask(data.date.dt.day_of_year > 196, data.date.dt.year.add(1)).astype('str'))) # day 196 is 15th July
         .drop(columns='link')
@@ -146,15 +157,17 @@ def import_team_info_data():
                 .drop(portugal_idxs)
             )
 
-def import_elo_data():
+def import_elo_data(to_predict=False):
     '''
     This function is used to import the elo data from the pickle file
 
     Returns:
         A pandas data frame with columns: link, home_elo and home_away
     '''
-
-    elo_dict = pickle.load(open('elo_dict.pkl', 'rb'))
+    if to_predict:
+        elo_dict = pickle.load(open('./data/elo/elo_dict_predict.pkl', 'rb'))
+    else:
+        elo_dict = pickle.load(open('elo_dict.pkl', 'rb'))
     elo_link_list = []
     elo_home_list = []
     elo_away_list = []
@@ -192,7 +205,7 @@ def merge_data_into_one_df(scores_df, match_df, team_df, elo_df):
 
     return scores_match_team_info_elo_df
 
-def import_and_merge_data_pipeline():
+def import_and_merge_data_pipeline(original_dataset = True, years=None, to_predict=False):
     '''
     This function is a pipeline for importing and merging all the initial data together.
 
@@ -205,13 +218,13 @@ def import_and_merge_data_pipeline():
         away_yellow, away_red, capacity, home_elo, away_elo
 
     '''
-    elo_df = import_elo_data()
+    elo_df = import_elo_data(to_predict=to_predict)
 
-    scores_df = import_leagues()
+    scores_df = import_leagues(original_dataset = original_dataset, years=years, to_predict=to_predict)
     scores_df = tweak_scores_df(scores_df)
     scores_df = create_match_id_col_from_link(scores_df)
 
-    match_info_df = import_match_info_data()
+    match_info_df = import_match_info_data(to_predict=to_predict)
     match_info_df = create_match_id_col(match_info_df)
 
     team_info_df = import_team_info_data()
