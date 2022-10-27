@@ -178,6 +178,13 @@ def import_elo_data(to_predict=False):
 
     elo_df = pd.DataFrame({'link': elo_link_list, 'home_elo': elo_home_list, 'away_elo': elo_away_list})
 
+    if to_predict:
+        elo_df = (elo_df
+                    .replace('N/A', np.nan)
+                    .assign(home_elo = lambda df_: df_.home_elo.astype('float'),
+                            away_elo = lambda df_: df_.away_elo.astype('float'))
+        )
+
     return elo_df
 
 def merge_data_into_one_df(scores_df, match_df, team_df, elo_df):
