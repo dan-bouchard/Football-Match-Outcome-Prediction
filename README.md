@@ -34,3 +34,12 @@
  - Saved the final model as `model.pkl`
 
  > ![](./imgs/lofo_scores.png?raw=1)
+
+ ## Inference
+  
+  - Scraped data for matches that have been completed since the original dataset was put together
+  - Used the data cleaning and feature engineering pipelines to transform the new data
+  - Used the model to make predictions for these new datapoints
+  - See below for the results for Premier League 2023-24 (Gameweek 12, w/c 22nd Oct)
+
+> ![](./imgs/prem_2023_gw12_predicitions.png?raw=1)
